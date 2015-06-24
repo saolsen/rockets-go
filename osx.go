@@ -132,8 +132,10 @@ func main() {
 		lastStartTime = startTime
 
 		// Do Opengl stuff
-		gl.ClearColor(0.0, 0.0, 0.0, 0.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
+		gl.ClearColor(0.0, 0.0, 0.0, 1.0)
+		gl.Clear(gl.COLOR_BUFFER_BIT |
+			gl.DEPTH_BUFFER_BIT |
+			gl.STENCIL_BUFFER_BIT)
 
 		C.nvgBeginFrame(vg, WindowWidth, WindowHeight, 2.0)
 
@@ -162,7 +164,6 @@ func main() {
 		C.nvgRestore(vg)
 
 		C.nvgEndFrame(vg)
-
 		window.SwapBuffers()
 
 		input.last_mouse_x = input.current_mouse_x

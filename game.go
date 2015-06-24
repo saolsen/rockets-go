@@ -13,6 +13,14 @@ func v2(x, y float32) mgl32.Vec2 {
 	return mgl32.Vec2{x, y}
 }
 
+type Thrusters struct {
+	bp    bool
+	bs    bool
+	sp    bool
+	ss    bool
+	boost bool
+}
+
 type BoundingBox struct {
 	top_left     mgl32.Vec2
 	bottom_right mgl32.Vec2
@@ -133,6 +141,8 @@ func (node PredicateNode) GetText() string {
 	var predicate string
 
 	switch node.signal {
+	default:
+		panic("Add new signal here too")
 	case (POS_X):
 		signal = "pos-x"
 	case (POS_Y):
@@ -142,6 +152,8 @@ func (node PredicateNode) GetText() string {
 	}
 
 	switch node.predicate {
+	default:
+		panic("Add new predicate here too")
 	case (LT):
 		predicate = "<"
 	case (GT):
@@ -288,7 +300,6 @@ type GameState struct {
 
 func Setup() *GameState {
 	state := &GameState{nextId: 0, nodes: newNodeStore()}
-	nsAddThruster(&state.nodes, BP)
 
 	return state
 }
@@ -358,6 +369,71 @@ func drawTextBox(gui GuiState, bounds BoundingBox, txt string) {
 	C.nvgRestore(gui.vg)
 }
 
+func drawShip(gui GuiState, thrusters Thrusters, grayscale bool) {
+	C.nvgSave(gui.vg)
+
+	if grayscale {
+		C.nvgFillColor(gui.vg, C.nvgRGBf(1, 1, 1))
+	} else {
+		C.nvgFillColor(gui.vg, C.nvgRGBf(1.0, 0.0, 0.0))
+	}
+
+	// Ship body
+	C.nvgBeginPath(gui.vg)
+	C.nvgRect(gui.vg, -10.0, -25.0, 20.0, 40.0)
+	C.nvgFill(gui.vg)
+
+	C.nvgBeginPath(gui.vg)
+	C.nvgRect(gui.vg, -20.0, -5.0, 15.0, 30.0)
+	C.nvgFill(gui.vg)
+
+	C.nvgBeginPath(gui.vg)
+	C.nvgRect(gui.vg, 5.0, -5.0, 15.0, 30.0)
+	C.nvgFill(gui.vg)
+
+	// Ship thrusters
+	if grayscale {
+		C.nvgFillColor(gui.vg, C.nvgRGBf(0.75, 0.75, 0.75))
+	} else {
+		C.nvgFillColor(gui.vg, C.nvgRGBf(1.0, 1.0, 0.0))
+	}
+
+	if thrusters.bp {
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, -20.0, -25.0, 10, 10)
+		C.nvgFill(gui.vg)
+	}
+
+	if thrusters.bs {
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, 10.0, -25.0, 10, 10)
+		C.nvgFill(gui.vg)
+	}
+
+	if thrusters.sp {
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, -30.0, 15.0, 10, 10)
+		C.nvgFill(gui.vg)
+	}
+
+	if thrusters.ss {
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, 20.0, 15.0, 10, 10)
+		C.nvgFill(gui.vg)
+	}
+
+	if thrusters.boost {
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, -17.5, 25.0, 10, 10)
+		C.nvgFill(gui.vg)
+		C.nvgBeginPath(gui.vg)
+		C.nvgRect(gui.vg, 7.5, 25.0, 10, 10)
+		C.nvgFill(gui.vg)
+	}
+
+	C.nvgRestore(gui.vg)
+}
+
 func UpdateAndRender(state *GameState, gui GuiState, dt float64) {
 	// Buttons to create nodes
 	if guiButton(gui, 10, 10, 50, 25) {
@@ -389,15 +465,44 @@ func UpdateAndRender(state *GameState, gui GuiState, dt float64) {
 
 		switch node := node.(type) {
 		default:
-			panic("Not all types accounted for here.")
+			panic("Not all node types accounted for here.")
 		case PredicateNode:
 			drawTextBox(gui, bounds, txt)
 		case GateNode:
 			drawTextBox(gui, bounds, txt)
 		case ThrusterNode:
-			fmt.Println(node)
-		}
+			thrusts := Thrusters{}
 
+			switch node.thruster {
+			case (BP):
+				thrusts.bp = true
+			case (BS):
+				thrusts.bs = true
+			case (SP):
+				thrusts.sp = true
+			case (SS):
+				thrusts.ss = true
+			case (BOOST):
+				thrusts.boost = true
+			}
+
+			C.nvgSave(gui.vg)
+			C.nvgBeginPath(gui.vg)
+			C.nvgRect(gui.vg,
+				C.float(bounds.top_left[0]),
+				C.float(bounds.top_left[1]),
+				60, 70)
+			C.nvgFillColor(gui.vg, C.nvgRGBf(0.5, 0.5, 0.5))
+			C.nvgFill(gui.vg)
+
+			C.nvgTranslate(gui.vg,
+				C.float(bounds.top_left[0]+30),
+				C.float(bounds.top_left[1]+35))
+
+			drawShip(gui, thrusts, true)
+
+			C.nvgRestore(gui.vg)
+		}
 	}
 
 	// Render
