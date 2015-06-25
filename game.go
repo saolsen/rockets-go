@@ -1,9 +1,9 @@
 package main
 
 import (
-	// "errors"
 	"fmt"
 	"github.com/go-gl/mathgl/mgl32"
+	"math"
 )
 
 // #include "nanovg.h"
@@ -19,6 +19,12 @@ type Thrusters struct {
 	sp    bool
 	ss    bool
 	boost bool
+}
+
+type Ship struct {
+	position  mgl32.Vec2
+	rotation  int
+	thrusters Thrusters
 }
 
 type BoundingBox struct {
@@ -204,7 +210,7 @@ func (node PredicateNode) GetBounds(gui GuiState) (BoundingBox, string) {
 	return CalcBounds(gui, node.pos, str), str
 }
 
-func (node ThrusterNode) Eval(ns NodeStore, pos_x int, pos_y int, rotation int) bool {
+func (node ThrusterNode) Eval(ns NodeStore, pos_x, pos_y, rotation int) bool {
 	parent, exists := nsGetNode(ns, node.input)
 	if exists {
 		return parent.Eval(ns, pos_x, pos_y, rotation)
@@ -213,7 +219,7 @@ func (node ThrusterNode) Eval(ns NodeStore, pos_x int, pos_y int, rotation int) 
 	}
 }
 
-func (node GateNode) Eval(ns NodeStore, pos_x int, pos_y int, rotation int) bool {
+func (node GateNode) Eval(ns NodeStore, pos_x, pos_y, rotation int) bool {
 	in1, exists1 := nsGetNode(ns, node.input1)
 	val1 := false
 	if exists1 {
@@ -236,7 +242,7 @@ func (node GateNode) Eval(ns NodeStore, pos_x int, pos_y int, rotation int) bool
 	}
 }
 
-func (node PredicateNode) Eval(ns NodeStore, pos_x int, pos_y int, rotation int) bool {
+func (node PredicateNode) Eval(ns NodeStore, pos_x, pos_y, rotation int) bool {
 	var signal int
 	switch node.signal {
 	case (POS_X):
@@ -293,13 +299,37 @@ func nsGetNode(ns NodeStore, id int) (node GameNode, exists bool) {
 	return value, exists
 }
 
+type LevelStatus int
+
+const (
+	RUNNING LevelStatus = iota
+	PAUSED
+	WON
+	DIED
+)
+
 type GameState struct {
-	nextId int
-	nodes  NodeStore
+	// nodes
+	nodes NodeStore
+
+	// scene
+	ship         Ship
+	currentLevel int
+	goal         mgl32.Vec2
+	status       LevelStatus
 }
 
 func Setup() *GameState {
-	state := &GameState{nextId: 0, nodes: newNodeStore()}
+	state := &GameState{
+		nodes: newNodeStore(),
+		ship: Ship{
+			position: v2(300, 99),
+			rotation: 0,
+		},
+		currentLevel: 1,
+		goal:         v2(300, 600),
+		status:       RUNNING,
+	}
 
 	return state
 }
@@ -434,6 +464,80 @@ func drawShip(gui GuiState, thrusters Thrusters, grayscale bool) {
 	C.nvgRestore(gui.vg)
 }
 
+func evalThrusters(nodes NodeStore, ship Ship) Thrusters {
+	outThrusters := Thrusters{}
+
+	for _, node := range nodes.nodes {
+		// @TODO should I round instead of cast?
+		value := node.Eval(nodes, int(ship.position[0]), int(ship.position[1]), ship.rotation)
+
+		switch node := node.(type) {
+		case (ThrusterNode):
+			switch node.thruster {
+			case (BP):
+				outThrusters.bp = outThrusters.bp || value
+			case (BS):
+				outThrusters.bs = outThrusters.bs || value
+			case (SP):
+				outThrusters.sp = outThrusters.sp || value
+			case (SS):
+				outThrusters.ss = outThrusters.ss || value
+			case (BOOST):
+				outThrusters.boost = outThrusters.boost || value
+			}
+		}
+	}
+
+	return outThrusters
+}
+
+func moveShip(ship *Ship, dt float64) {
+	force := v2(0, 0)
+	rotation := 0
+
+	if ship.thrusters.bp {
+		force = force.Add(v2(1, 0))
+		rotation--
+	}
+
+	if ship.thrusters.bs {
+		force = force.Add(v2(-1, 0))
+		rotation++
+	}
+
+	if ship.thrusters.sp {
+		force = force.Add(v2(1, 0))
+		rotation++
+	}
+
+	if ship.thrusters.ss {
+		force = force.Add(v2(-1, 0))
+		rotation--
+	}
+
+	if ship.thrusters.boost {
+		force = force.Add(v2(0, 5))
+	}
+
+	// @TODO: figure out what to do about all these conversions.
+	// Either do all math in 64 which is fine for this game because there is so little
+	// or find a float32 math library.
+	theta := float64(ship.rotation) * math.Pi / 180.0
+	nx := float64(force[0])*math.Cos(theta) - float64(force[1])*math.Sin(theta)
+	ny := float64(force[0])*math.Sin(theta) + float64(force[1])*math.Cos(theta)
+
+	absForce := v2(float32(nx), float32(ny))
+	speed := float32(50.0 * dt)
+
+	ship.position = ship.position.Add(absForce.Mul(speed))
+
+	newRotation := ship.rotation + rotation
+	if newRotation < 0 {
+		newRotation += 360
+	}
+	ship.rotation = newRotation % 360
+}
+
 func UpdateAndRender(state *GameState, gui GuiState, dt float64) {
 	// Buttons to create nodes
 	if guiButton(gui, 10, 10, 50, 25) {
@@ -451,12 +555,11 @@ func UpdateAndRender(state *GameState, gui GuiState, dt float64) {
 	// Nodes
 	bodies := make([]NodeBounds, 0)
 	// inputs := make([]NodeBounds, 0)
-	// inputs = make([]NodeBounds)
-	// outputs = make([]NodeBounds)
-	// constants = make([]NodeBounds)
+	// inputs = make([]NodeBounds, 0)
+	// outputs = make([]NodeBounds, 0)
+	// constants = make([]NodeBounds, 0)
 
 	for id, node := range state.nodes.nodes {
-		// data := node.Data()
 		bounds, txt := node.GetBounds(gui)
 
 		// body
@@ -505,15 +608,38 @@ func UpdateAndRender(state *GameState, gui GuiState, dt float64) {
 		}
 	}
 
+	// Update
+	if state.status == RUNNING {
+		newThrusters := evalThrusters(state.nodes, state.ship)
+		state.ship.thrusters = newThrusters
+		moveShip(&state.ship, dt)
+	}
+
 	// Render
+
 	// Space background!
 	C.nvgBeginPath(gui.vg)
 	C.nvgRect(gui.vg, 660, 10, 600, 700)
 	C.nvgFillColor(gui.vg, C.nvgRGBf(0.25, 0.25, 0.25))
 	C.nvgFill(gui.vg)
 
-	C.nvgSave(gui.vg)
 	// draw the scene
+	C.nvgSave(gui.vg)
+
+	// @HARDCODE
+	C.nvgTranslate(gui.vg, 660, 10)
+	C.nvgTranslate(gui.vg, 0, 700)
+
+	// Must draw with negative x coordinates in this transform.
+	// Uses 4th quadrant instead of 1st because that way text will render correctly.
+	C.nvgSave(gui.vg)
+	C.nvgTranslate(gui.vg,
+		C.float(state.ship.position[0]),
+		C.float(-state.ship.position[1]))
+	C.nvgRotate(gui.vg, C.float(-(float64(state.ship.rotation) * math.Pi / 180.0)))
+	drawShip(gui, state.ship.thrusters, false)
+	C.nvgRestore(gui.vg)
+
 	C.nvgRestore(gui.vg)
 
 }
