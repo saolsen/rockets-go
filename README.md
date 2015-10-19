@@ -1,3 +1,5 @@
+NOTE: This is abandoned and a very imcomplete version of rockets in go, open sourcing to free up a private repo, not because it's something anybody will want to see.
+
 # rockets-go
 
 Need to have gopath set up correctly
